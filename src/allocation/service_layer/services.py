@@ -1,38 +1,45 @@
 from __future__ import annotations
-from typing import Optional
-from datetime import date
+from sqlalchemy.exc import NoResultFound
 
 from allocation.domain import model
-from allocation.domain.model import OrderLine
 from allocation.service_layer import unit_of_work
+from allocation.adapters.agent import AbstractAgent
 
 
-class InvalidSku(Exception):
-    pass
-
-
-def is_valid_sku(sku, batches):
-    return sku in {b.sku for b in batches}
-
-
-def add_batch(
-    ref: str, sku: str, qty: int, eta: Optional[date],
+def add_institution(
+    name: str,
+    industry: str,
+    website: str,
     uow: unit_of_work.AbstractUnitOfWork,
 ):
     with uow:
-        uow.batches.add(model.Batch(ref, sku, qty, eta))
+        institution = model.Institution(name, industry, website)
+        uow.institutions.add(institution)
         uow.commit()
 
 
-def allocate(
-    orderid: str, sku: str, qty: int,
+def update_from_website(
+    institution_id: int,
     uow: unit_of_work.AbstractUnitOfWork,
-) -> str:
-    line = OrderLine(orderid, sku, qty)
+    agent: AbstractAgent,
+):
     with uow:
-        batches = uow.batches.list()
-        if not is_valid_sku(line.sku, batches):
-            raise InvalidSku(f"Invalid sku {line.sku}")
-        batchref = model.allocate(line, batches)
+        try:
+            institution = uow.institutions.get(institution_id)
+        except NoResultFound:
+            raise model.InstitutionNotFound(f"Institution with id {institution_id} not found")
+
+        # Create agent input from institution
+        agent_input = model.AgentInput(
+            name=institution.name,
+            industry=institution.industry,
+            website=institution.website,
+        )
+
+        # Fetch persons from agent
+        agent_output = agent.fetch_persons(agent_input)
+
+        # Update institution with agent output
+        institution.update_persons_from_agent(agent_output)
+
         uow.commit()
-    return batchref

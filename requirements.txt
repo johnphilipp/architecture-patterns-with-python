@@ -8,3 +8,6 @@ pytest
 pytest-icdiff
 mypy
 requests
+
+# dev
+types-requests

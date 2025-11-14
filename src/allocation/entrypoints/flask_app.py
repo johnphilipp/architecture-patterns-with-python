@@ -1,41 +1,36 @@
-from datetime import datetime
 from flask import Flask, request
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from allocation.domain import model
-from allocation.adapters import orm
+from allocation.adapters import orm, agent
 from allocation.service_layer import services, unit_of_work
 
 app = Flask(__name__)
 orm.start_mappers()
 
+# Instantiate the agent for dependency injection
+fake_agent = agent.FakeAgent()
 
-@app.route("/add_batch", methods=["POST"])
-def add_batch():
-    eta = request.json["eta"]
-    if eta is not None:
-        eta = datetime.fromisoformat(eta).date()
-    services.add_batch(
-        request.json["ref"],
-        request.json["sku"],
-        request.json["qty"],
-        eta,
+
+@app.route("/add_institution", methods=["POST"])
+def add_institution():
+    services.add_institution(
+        request.json["name"],
+        request.json["industry"],
+        request.json["website"],
         unit_of_work.SqlAlchemyUnitOfWork(),
     )
     return "OK", 201
 
 
-@app.route("/allocate", methods=["POST"])
-def allocate_endpoint():
+@app.route("/update_from_website", methods=["POST"])
+def update_from_website():
     try:
-        batchref = services.allocate(
-            request.json["orderid"],
-            request.json["sku"],
-            request.json["qty"],
+        services.update_from_website(
+            request.json["institution_id"],
             unit_of_work.SqlAlchemyUnitOfWork(),
+            fake_agent,
         )
-    except (model.OutOfStock, services.InvalidSku) as e:
-        return {"message": str(e)}, 400
+    except model.InstitutionNotFound as e:
+        return {"message": str(e)}, 404
 
-    return {"batchref": batchref}, 201
+    return "OK", 200

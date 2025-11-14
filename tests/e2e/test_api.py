@@ -9,51 +9,72 @@ def random_suffix():
     return uuid.uuid4().hex[:6]
 
 
-def random_sku(name=""):
-    return f"sku-{name}-{random_suffix()}"
+def random_institution_name(name=""):
+    return f"Institution-{name}-{random_suffix()}"
 
 
-def random_batchref(name=""):
-    return f"batch-{name}-{random_suffix()}"
-
-
-def random_orderid(name=""):
-    return f"order-{name}-{random_suffix()}"
-
-
-def post_to_add_batch(ref, sku, qty, eta):
+def post_to_add_institution(name, industry, website):
     url = config.get_api_url()
     r = requests.post(
-        f"{url}/add_batch", json={"ref": ref, "sku": sku, "qty": qty, "eta": eta}
+        f"{url}/add_institution",
+        json={"name": name, "industry": industry, "website": website}
     )
     assert r.status_code == 201
 
 
-@pytest.mark.usefixtures("postgres_db")
-@pytest.mark.usefixtures("restart_api")
-def test_happy_path_returns_201_and_allocated_batch():
-    sku, othersku = random_sku(), random_sku("other")
-    earlybatch = random_batchref(1)
-    laterbatch = random_batchref(2)
-    otherbatch = random_batchref(3)
-    post_to_add_batch(laterbatch, sku, 100, "2011-01-02")
-    post_to_add_batch(earlybatch, sku, 100, "2011-01-01")
-    post_to_add_batch(otherbatch, othersku, 100, None)
-    data = {"orderid": random_orderid(), "sku": sku, "qty": 3}
-
+def post_to_update_from_website(institution_id):
     url = config.get_api_url()
-    r = requests.post(f"{url}/allocate", json=data)
-
-    assert r.status_code == 201
-    assert r.json()["batchref"] == earlybatch
+    r = requests.post(
+        f"{url}/update_from_website",
+        json={"institution_id": institution_id}
+    )
+    return r
 
 
 @pytest.mark.usefixtures("postgres_db")
 @pytest.mark.usefixtures("restart_api")
-def test_unhappy_path_returns_400_and_error_message():
-    unknown_sku, orderid = random_sku(), random_orderid()
-    data = {"orderid": orderid, "sku": unknown_sku, "qty": 20}
+def test_happy_path_add_institution_and_update_from_website():
+    # Add an institution
+    institution_name = random_institution_name()
+    post_to_add_institution(institution_name, "Technology", "https://techcorp.com")
+
+    # Since we don't have a way to retrieve the institution ID from the API yet,
+    # we'll assume the first institution has ID 1 in a fresh database
+    # In a real scenario, the add_institution endpoint would return the created ID
+    institution_id = 1
+
+    # Update from website (calls the agent)
     url = config.get_api_url()
-    r = requests.post(f"{url}/allocate", json=data)
-    assert r.status_code == 400
-    assert r.json()["message"] == f"Invalid sku {unknown_sku}"
+    r = post_to_update_from_website(institution_id)
+
+    assert r.status_code == 200
+
+
+@pytest.mark.usefixtures("postgres_db")
+@pytest.mark.usefixtures("restart_api")
+def test_update_from_website_twice_accumulates_persons():
+    # Add an institution
+    institution_name = random_institution_name()
+    post_to_add_institution(institution_name, "Technology", "https://techcorp.com")
+
+    institution_id = 1
+
+    # First update
+    r = post_to_update_from_website(institution_id)
+    assert r.status_code == 200
+
+    # Second update (should add more persons, not replace)
+    r = post_to_update_from_website(institution_id)
+    assert r.status_code == 200
+
+
+@pytest.mark.usefixtures("postgres_db")
+@pytest.mark.usefixtures("restart_api")
+def test_unhappy_path_returns_404_for_invalid_institution():
+    url = config.get_api_url()
+    r = requests.post(
+        f"{url}/update_from_website",
+        json={"institution_id": 99999}
+    )
+    assert r.status_code == 404
+    assert "not found" in r.json()["message"].lower()

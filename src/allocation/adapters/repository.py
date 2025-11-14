@@ -2,25 +2,25 @@ import abc
 from allocation.domain import model
 
 
-class AbstractRepository(abc.ABC):
+class AbstractInstitutionRepository(abc.ABC):
     @abc.abstractmethod
-    def add(self, batch: model.Batch):
+    def add(self, institution: model.Institution):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get(self, reference) -> model.Batch:
+    def get(self, institution_id: int) -> model.Institution:
         raise NotImplementedError
 
 
-class SqlAlchemyRepository(AbstractRepository):
+class SqlAlchemyInstitutionRepository(AbstractInstitutionRepository):
     def __init__(self, session):
         self.session = session
 
-    def add(self, batch):
-        self.session.add(batch)
+    def add(self, institution):
+        self.session.add(institution)
 
-    def get(self, reference):
-        return self.session.query(model.Batch).filter_by(reference=reference).one()
+    def get(self, institution_id):
+        return self.session.query(model.Institution).filter_by(id=institution_id).one()
 
     def list(self):
-        return self.session.query(model.Batch).all()
+        return self.session.query(model.Institution).all()

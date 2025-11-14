@@ -1,4 +1,4 @@
-from sqlalchemy import Table, MetaData, Column, Integer, String, Date, ForeignKey
+from sqlalchemy import Table, MetaData, Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship, registry
 
 from allocation.domain import model
@@ -9,43 +9,37 @@ metadata = MetaData()
 # Create a registry
 mapper_registry = registry()
 
-order_lines = Table(
-    "order_lines",
+institutions = Table(
+    "institutions",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("sku", String(255)),
-    Column("qty", Integer, nullable=False),
-    Column("orderid", String(255)),
+    Column("name", String(255)),
+    Column("industry", String(255)),
+    Column("website", String(255)),
 )
 
-batches = Table(
-    "batches",
+persons = Table(
+    "persons",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("reference", String(255)),
-    Column("sku", String(255)),
-    Column("_purchased_quantity", Integer, nullable=False),
-    Column("eta", Date, nullable=True),
-)
-
-allocations = Table(
-    "allocations",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("orderline_id", ForeignKey("order_lines.id")),
-    Column("batch_id", ForeignKey("batches.id")),
+    Column("institution_id", ForeignKey("institutions.id")),
+    Column("first_name", String(255)),
+    Column("last_name", String(255)),
+    Column("job_title", String(255)),
+    Column("email", String(255)),
+    Column("phone", String(255)),
+    Column("source_url", String(255)),
 )
 
 
 def start_mappers():
-    lines_mapper = mapper_registry.map_imperatively(model.OrderLine, order_lines)
+    persons_mapper = mapper_registry.map_imperatively(model.Person, persons)
     mapper_registry.map_imperatively(
-        model.Batch,
-        batches,
+        model.Institution,
+        institutions,
         properties={
-            "_allocations": relationship(
-                lines_mapper,
-                secondary=allocations,
+            "_persons": relationship(
+                persons_mapper,
                 collection_class=set,
             )
         },

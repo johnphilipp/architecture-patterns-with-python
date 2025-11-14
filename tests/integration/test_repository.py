@@ -4,65 +4,60 @@ from allocation.domain import model
 from allocation.adapters import repository
 
 
-def test_repository_can_save_a_batch(session):
-    batch = model.Batch("batch1", "RUSTY-SOAPDISH", 100, eta=None)
+def test_repository_can_save_an_institution(session):
+    institution = model.Institution("TechCorp", "Technology", "https://techcorp.com")
 
-    repo = repository.SqlAlchemyRepository(session)
-    repo.add(batch)
+    repo = repository.SqlAlchemyInstitutionRepository(session)
+    repo.add(institution)
     session.commit()
 
     rows = session.execute(
-        text('SELECT reference, sku, _purchased_quantity, eta FROM "batches"')
+        text('SELECT name, industry, website FROM "institutions"')
     )
-    assert list(rows) == [("batch1", "RUSTY-SOAPDISH", 100, None)]
+    assert list(rows) == [("TechCorp", "Technology", "https://techcorp.com")]
 
 
-def insert_order_line(session):
+def insert_institution(session, name, industry, website):
     session.execute(
-        text("INSERT INTO order_lines (orderid, sku, qty)"
-        ' VALUES ("order1", "GENERIC-SOFA", 12)')
+        text("INSERT INTO institutions (name, industry, website)"
+        " VALUES (:name, :industry, :website)"),
+        dict(name=name, industry=industry, website=website),
     )
-    [[orderline_id]] = session.execute(
-        text("SELECT id FROM order_lines WHERE orderid=:orderid AND sku=:sku"),
-        dict(orderid="order1", sku="GENERIC-SOFA"),
+    [[institution_id]] = session.execute(
+        text("SELECT id FROM institutions WHERE name=:name"),
+        dict(name=name),
     )
-    return orderline_id
+    return institution_id
 
 
-def insert_batch(session, batch_id):
+def insert_person(session, institution_id, first_name, last_name, source_url, email, phone):
     session.execute(
-        text("INSERT INTO batches (reference, sku, _purchased_quantity, eta)"
-        ' VALUES (:batch_id, "GENERIC-SOFA", 100, null)'),
-        dict(batch_id=batch_id),
-    )
-    [[batch_id]] = session.execute(
-        text('SELECT id FROM batches WHERE reference=:batch_id AND sku="GENERIC-SOFA"'),
-        dict(batch_id=batch_id),
-    )
-    return batch_id
-
-
-def insert_allocation(session, orderline_id, batch_id):
-    session.execute(
-        text("INSERT INTO allocations (orderline_id, batch_id)"
-        " VALUES (:orderline_id, :batch_id)"),
-        dict(orderline_id=orderline_id, batch_id=batch_id),
+        text("INSERT INTO persons (institution_id, first_name, last_name, source_url, email, phone, job_title)"
+        " VALUES (:institution_id, :first_name, :last_name, :source_url, :email, :phone, '')"),
+        dict(
+            institution_id=institution_id,
+            first_name=first_name,
+            last_name=last_name,
+            source_url=source_url,
+            email=email,
+            phone=phone,
+        ),
     )
 
 
-def test_repository_can_retrieve_a_batch_with_allocations(session):
-    orderline_id = insert_order_line(session)
-    batch1_id = insert_batch(session, "batch1")
-    insert_batch(session, "batch2")
-    insert_allocation(session, orderline_id, batch1_id)
+def test_repository_can_retrieve_an_institution_with_persons(session):
+    institution_id = insert_institution(session, "TechCorp", "Technology", "https://techcorp.com")
+    insert_person(session, institution_id, "John", "Doe", "https://techcorp.com/team/john", "john@example.com", "+1-555-0100")
+    insert_person(session, institution_id, "Jane", "Smith", "https://techcorp.com/team/jane", "jane@example.com", "+1-555-0101")
 
-    repo = repository.SqlAlchemyRepository(session)
-    retrieved = repo.get("batch1")
+    repo = repository.SqlAlchemyInstitutionRepository(session)
+    retrieved = repo.get(institution_id)
 
-    expected = model.Batch("batch1", "GENERIC-SOFA", 100, eta=None)
-    assert retrieved == expected  # Batch.__eq__ only compares reference
-    assert retrieved.sku == expected.sku
-    assert retrieved._purchased_quantity == expected._purchased_quantity
-    assert retrieved._allocations == {
-        model.OrderLine("order1", "GENERIC-SOFA", 12),
-    }
+    assert retrieved.name == "TechCorp"
+    assert retrieved.industry == "Technology"
+    assert retrieved.website == "https://techcorp.com"
+    assert len(retrieved.persons) == 2
+
+    persons_list = list(retrieved.persons)
+    assert any(p.first_name == "John" and p.last_name == "Doe" for p in persons_list)
+    assert any(p.first_name == "Jane" and p.last_name == "Smith" for p in persons_list)

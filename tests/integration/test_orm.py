@@ -1,90 +1,95 @@
 from allocation.domain import model
-from datetime import date
 from sqlalchemy import text
 
 
-def test_orderline_mapper_can_load_lines(session):
+def test_person_mapper_can_save_persons(session):
+    person = model.Person("John", "Doe", "https://example.com/john", "john@example.com", "+1-555-0100", "CEO")
+    session.add(person)
+    session.commit()
+
+    rows = list(session.execute(
+        text('SELECT first_name, last_name, source_url, email, phone, job_title FROM "persons"')
+    ))
+    assert rows == [("John", "Doe", "https://example.com/john", "john@example.com", "+1-555-0100", "CEO")]
+
+
+def test_person_mapper_can_load_persons(session):
     session.execute(
-        text("INSERT INTO order_lines (orderid, sku, qty) VALUES "
-        '("order1", "RED-CHAIR", 12),'
-        '("order1", "RED-TABLE", 13),'
-        '("order2", "BLUE-LIPSTICK", 14)')
+        text("INSERT INTO persons (institution_id, first_name, last_name, source_url, email, phone, job_title) VALUES "
+        '(null, "John", "Doe", "https://example.com/john", "john@example.com", "+1-555-0100", "CEO"),'
+        '(null, "Jane", "Smith", "https://example.com/jane", "jane@example.com", "+1-555-0101", "CTO")')
     )
     expected = [
-        model.OrderLine("order1", "RED-CHAIR", 12),
-        model.OrderLine("order1", "RED-TABLE", 13),
-        model.OrderLine("order2", "BLUE-LIPSTICK", 14),
+        model.Person("John", "Doe", "https://example.com/john", "john@example.com", "+1-555-0100", "CEO"),
+        model.Person("Jane", "Smith", "https://example.com/jane", "jane@example.com", "+1-555-0101", "CTO"),
     ]
-    assert session.query(model.OrderLine).all() == expected
+    result = session.query(model.Person).all()
+    assert len(result) == 2
+    assert result[0].first_name == "John"
+    assert result[1].first_name == "Jane"
 
 
-def test_orderline_mapper_can_save_lines(session):
-    new_line = model.OrderLine("order1", "DECORATIVE-WIDGET", 12)
-    session.add(new_line)
+def test_institution_mapper_can_save_institutions(session):
+    institution = model.Institution("TechCorp", "Technology", "https://techcorp.com")
+    session.add(institution)
     session.commit()
 
-    rows = list(session.execute(text('SELECT orderid, sku, qty FROM "order_lines"')))
-    assert rows == [("order1", "DECORATIVE-WIDGET", 12)]
+    rows = list(session.execute(
+        text('SELECT name, industry, website FROM "institutions"')
+    ))
+    assert rows == [("TechCorp", "Technology", "https://techcorp.com")]
 
 
-def test_retrieving_batches(session):
+def test_institution_mapper_can_load_institutions(session):
     session.execute(
-        text("INSERT INTO batches (reference, sku, _purchased_quantity, eta)"
-        ' VALUES ("batch1", "sku1", 100, null)')
+        text("INSERT INTO institutions (name, industry, website) VALUES "
+        '("TechCorp", "Technology", "https://techcorp.com"),'
+        '("BizCorp", "Business", "https://bizcorp.com")')
     )
-    session.execute(
-        text("INSERT INTO batches (reference, sku, _purchased_quantity, eta)"
-        ' VALUES ("batch2", "sku2", 200, "2011-04-11")')
+    institutions = session.query(model.Institution).all()
+    assert len(institutions) == 2
+    assert institutions[0].name == "TechCorp"
+    assert institutions[1].name == "BizCorp"
+
+
+def test_saving_institution_with_persons(session):
+    institution = model.Institution("TechCorp", "Technology", "https://techcorp.com")
+
+    # Use the domain method to add persons
+    agent_output = model.AgentOutput(
+        persons=[
+            model.AgentPerson("John", "Doe", "john@example.com", "+1-555-0100", "https://techcorp.com/team/john"),
+            model.AgentPerson("Jane", "Smith", "jane@example.com", "+1-555-0101", "https://techcorp.com/team/jane"),
+        ]
     )
-    expected = [
-        model.Batch("batch1", "sku1", 100, eta=None),
-        model.Batch("batch2", "sku2", 200, eta=date(2011, 4, 11)),
-    ]
+    institution.update_persons_from_agent(agent_output)
 
-    assert session.query(model.Batch).all() == expected
-
-
-def test_saving_batches(session):
-    batch = model.Batch("batch1", "sku1", 100, eta=None)
-    session.add(batch)
+    session.add(institution)
     session.commit()
-    rows = session.execute(
-        text('SELECT reference, sku, _purchased_quantity, eta FROM "batches"')
-    )
-    assert list(rows) == [("batch1", "sku1", 100, None)]
+
+    rows = list(session.execute(text('SELECT institution_id, first_name, last_name FROM "persons"')))
+    assert len(rows) == 2
+    assert rows[0][1] in ("John", "Jane")  # first_name
+    assert rows[1][1] in ("John", "Jane")
 
 
-def test_saving_allocations(session):
-    batch = model.Batch("batch1", "sku1", 100, eta=None)
-    line = model.OrderLine("order1", "sku1", 10)
-    batch.allocate(line)
-    session.add(batch)
-    session.commit()
-    rows = list(session.execute(text('SELECT orderline_id, batch_id FROM "allocations"')))
-    assert rows == [(line.id, batch.id)]
-
-
-def test_retrieving_allocations(session):
+def test_retrieving_institution_with_persons(session):
     session.execute(
-        text('INSERT INTO order_lines (orderid, sku, qty) VALUES ("order1", "sku1", 12)')
+        text("INSERT INTO institutions (name, industry, website) VALUES "
+        '("TechCorp", "Technology", "https://techcorp.com")')
     )
-    [[olid]] = session.execute(
-        text("SELECT id FROM order_lines WHERE orderid=:orderid AND sku=:sku"),
-        dict(orderid="order1", sku="sku1"),
+    [[institution_id]] = session.execute(
+        text("SELECT id FROM institutions WHERE name='TechCorp'")
     )
     session.execute(
-        text("INSERT INTO batches (reference, sku, _purchased_quantity, eta)"
-        ' VALUES ("batch1", "sku1", 100, null)')
-    )
-    [[bid]] = session.execute(
-        text("SELECT id FROM batches WHERE reference=:ref AND sku=:sku"),
-        dict(ref="batch1", sku="sku1"),
-    )
-    session.execute(
-        text("INSERT INTO allocations (orderline_id, batch_id) VALUES (:olid, :bid)"),
-        dict(olid=olid, bid=bid),
+        text("INSERT INTO persons (institution_id, first_name, last_name, source_url, email, phone, job_title) VALUES "
+        f'({institution_id}, "John", "Doe", "https://techcorp.com/team/john", "john@example.com", "+1-555-0100", "CEO"),'
+        f'({institution_id}, "Jane", "Smith", "https://techcorp.com/team/jane", "jane@example.com", "+1-555-0101", "CTO")')
     )
 
-    batch = session.query(model.Batch).one()
+    institution = session.query(model.Institution).one()
 
-    assert batch._allocations == {model.OrderLine("order1", "sku1", 12)}
+    assert len(institution.persons) == 2
+    persons_list = list(institution.persons)
+    assert any(p.first_name == "John" for p in persons_list)
+    assert any(p.first_name == "Jane" for p in persons_list)

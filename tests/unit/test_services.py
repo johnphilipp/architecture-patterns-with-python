@@ -1,25 +1,34 @@
 import pytest
-from allocation.adapters import repository
+from allocation.adapters import repository, agent
+from allocation.domain import model
 from allocation.service_layer import services, unit_of_work
 
 
-class FakeRepository(repository.AbstractRepository):
-    def __init__(self, batches):
-        self._batches = set(batches)
+class FakeInstitutionRepository(repository.AbstractInstitutionRepository):
+    def __init__(self, institutions):
+        self._institutions = set(institutions)
+        self._next_id = 1
 
-    def add(self, batch):
-        self._batches.add(batch)
+    def add(self, institution):
+        # Simulate auto-incrementing ID
+        institution.id = self._next_id
+        self._next_id += 1
+        self._institutions.add(institution)
 
-    def get(self, reference):
-        return next(b for b in self._batches if b.reference == reference)
+    def get(self, institution_id):
+        try:
+            return next(i for i in self._institutions if i.id == institution_id)
+        except StopIteration:
+            from sqlalchemy.exc import NoResultFound
+            raise NoResultFound()
 
     def list(self):
-        return list(self._batches)
+        return list(self._institutions)
 
 
 class FakeUnitOfWork(unit_of_work.AbstractUnitOfWork):
     def __init__(self):
-        self.batches = FakeRepository([])
+        self.institutions = FakeInstitutionRepository([])
         self.committed = False
 
     def commit(self):
@@ -29,30 +38,58 @@ class FakeUnitOfWork(unit_of_work.AbstractUnitOfWork):
         pass
 
 
-def test_add_batch():
+class FakeAgent(agent.AbstractAgent):
+    def __init__(self, persons_to_return):
+        self.persons_to_return = persons_to_return
+
+    def fetch_persons(self, agent_input):
+        return model.AgentOutput(persons=self.persons_to_return)
+
+
+def test_add_institution():
     uow = FakeUnitOfWork()
-    services.add_batch("b1", "CRUNCHY-ARMCHAIR", 100, None, uow)
-    assert uow.batches.get("b1") is not None
+    services.add_institution("TechCorp", "Technology", "https://techcorp.com", uow)
+    assert uow.institutions.get(1) is not None
     assert uow.committed
 
 
-def test_allocate_returns_allocation():
+def test_add_institution_commits():
     uow = FakeUnitOfWork()
-    services.add_batch("batch1", "COMPLICATED-LAMP", 100, None, uow)
-    result = services.allocate("o1", "COMPLICATED-LAMP", 10, uow)
-    assert result == "batch1"
-
-
-def test_allocate_errors_for_invalid_sku():
-    uow = FakeUnitOfWork()
-    services.add_batch("b1", "AREALSKU", 100, None, uow)
-
-    with pytest.raises(services.InvalidSku, match="Invalid sku NONEXISTENTSKU"):
-        services.allocate("o1", "NONEXISTENTSKU", 10, uow)
-
-
-def test_allocate_commits():
-    uow = FakeUnitOfWork()
-    services.add_batch("b1", "OMINOUS-MIRROR", 100, None, uow)
-    services.allocate("o1", "OMINOUS-MIRROR", 10, uow)
+    services.add_institution("TechCorp", "Technology", "https://techcorp.com", uow)
     assert uow.committed
+
+
+def test_update_from_website_returns_correctly():
+    uow = FakeUnitOfWork()
+    services.add_institution("TechCorp", "Technology", "https://techcorp.com", uow)
+
+    fake_agent = FakeAgent([
+        model.AgentPerson("John", "Doe", "john@example.com", "+1-555-0100", "https://techcorp.com/team/john"),
+    ])
+
+    services.update_from_website(1, uow, fake_agent)
+    assert uow.committed
+
+
+def test_update_from_website_adds_persons():
+    uow = FakeUnitOfWork()
+    services.add_institution("TechCorp", "Technology", "https://techcorp.com", uow)
+
+    fake_agent = FakeAgent([
+        model.AgentPerson("John", "Doe", "john@example.com", "+1-555-0100", "https://techcorp.com/team/john"),
+        model.AgentPerson("Jane", "Smith", "jane@example.com", "+1-555-0101", "https://techcorp.com/team/jane"),
+    ])
+
+    services.update_from_website(1, uow, fake_agent)
+
+    institution = uow.institutions.get(1)
+    assert len(institution.persons) == 2
+
+
+def test_update_from_website_errors_for_invalid_institution_id():
+    uow = FakeUnitOfWork()
+
+    fake_agent = FakeAgent([])
+
+    with pytest.raises(model.InstitutionNotFound, match="Institution with id 999 not found"):
+        services.update_from_website(999, uow, fake_agent)
