@@ -130,8 +130,11 @@ class Person:
         """
         existing_detail = self._find_detail(detail.source_url)
         if existing_detail:
-            # Update existing detail
-            existing_detail.update(detail.job_title, detail.email, detail.phone)
+            # TODO: Discuss update logic for persons and details. Thoughts:
+            # If Person A from source X in DB but not returned by scraper: soft-delete with reason (e.g., "not found")
+            # If PersonDetail from source X exists but fields differ: update fields blindly or merge intelligently?
+            # existing_detail.update(detail.job_title, detail.email, detail.phone)
+            pass  # Currently, we do not update existing details
         else:
             # Add new detail
             self._person_details.add(detail)

@@ -37,18 +37,18 @@ def test_updating_existing_detail_by_source_url():
     detail1 = model.PersonDetail("CEO", "https://example.com/john", "old@example.com", "+1-555-0100")
     person.add_or_update_detail(detail1)
 
-    # Update with same source_url
+    # Agent found new detail from same source_url
     detail2 = model.PersonDetail("CTO", "https://example.com/john", "new@example.com", "+1-555-9999")
     person.add_or_update_detail(detail2)
 
     # Should still have only 1 detail
     assert len(person.person_details) == 1
 
-    # But fields should be updated
+    # Fields should have NOT been updated
     updated_detail = list(person.person_details)[0]
-    assert updated_detail.job_title == "CTO"
-    assert updated_detail.email == "new@example.com"
-    assert updated_detail.phone == "+1-555-9999"
+    assert updated_detail.job_title == "CEO"
+    assert updated_detail.email == "old@example.com"
+    assert updated_detail.phone == "+1-555-0100"
 
 
 def test_adding_multiple_details_from_different_sources():
@@ -104,10 +104,10 @@ def test_institution_update_persons_from_agent_updates_existing_person_detail():
     person = list(institution.persons)[0]
     assert len(person.person_details) == 1
 
-    # Detail should be updated
+    # Detail should have NOT been updated
     detail = list(person.person_details)[0]
-    assert detail.email == "john.new@example.com"
-    assert detail.phone == "+1-555-9999"
+    assert detail.email == "john.old@example.com"
+    assert detail.phone == "+1-555-0100"
 
 
 def test_institution_update_persons_from_agent_adds_new_persons():
